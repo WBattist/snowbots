@@ -206,6 +206,133 @@ return () => {
   currentTarget = null;
 };
   }
+
+  // Modified functions for quartz mining
+
+breakQuartzContinuously(bot, botName, reach = 10) {
+  if (!bot) return;
+
+  this.ui.log('blue', `[💎] ${botName} is now breaking quartz (reach: ${reach} blocks).`);
+  bot.isBreakingQuartz = true;
+
+  let currentTarget = null;
+  let quartzBroken = 0;
+  let isDigging = false;
+  let lastCountUpdate = 0;
+  
+  // Use the Vec3 from the bot's position to ensure we're using the correct vector implementation
+  const Vec3 = bot.entity.position.constructor;
+  const self = this;
+
+  // Function to update the quartz count on a single line
+  function updateQuartzCounter() {
+    // Only update every 500ms to avoid console spam
+    const now = Date.now();
+    if (now - lastCountUpdate > 500) {
+      process.stdout.write(`\r[💎] ${botName} quartz broken: ${quartzBroken}        `);
+      lastCountUpdate = now;
+    }
+  }
+
+  async function findAndDigQuartz() {
+    if (!bot.isBreakingQuartz) return;
+
+    if (!currentTarget && !isDigging) {
+      // Find quartz blocks using the reach parameter
+      const quartzBlocks = bot.findBlocks({
+        matching: block => {
+          return block.name.includes('quartz') || block.name === 'nether_quartz_ore';
+        },
+        maxDistance: reach,
+        count: 5
+      });
+
+      if (quartzBlocks.length > 0) {
+        // Sort blocks by distance to prioritize closest ones
+        quartzBlocks.sort((a, b) => {
+          const distA = bot.entity.position.distanceTo(new Vec3(a.x + 0.5, a.y + 0.5, a.z + 0.5));
+          const distB = bot.entity.position.distanceTo(new Vec3(b.x + 0.5, b.y + 0.5, b.z + 0.5));
+          return distA - distB;
+        });
+
+        for (const quartzPos of quartzBlocks) {
+          const block = bot.blockAt(quartzPos);
+          
+          // Double-check it's actually quartz
+          if (block && (block.name.includes('quartz') || block.name === 'nether_quartz_ore')) {
+            currentTarget = block;
+            
+            try {
+              isDigging = true;
+              // Look at the center of the block
+              await bot.lookAt(quartzPos.offset(0.5, 0.5, 0.5), true);
+              
+              // Dig the quartz block
+              await bot.dig(currentTarget);
+              
+              quartzBroken++;
+              // Update the counter instead of logging a new line
+              updateQuartzCounter();
+            } catch (err) {
+              // Only log unexpected errors
+              if (!err.message.includes("already") && !err.message.includes("cannot") && !err.message.includes("No block")) {
+                self.ui.log('red', `\n[❌] Digging error: ${err.message}`);
+              }
+            } finally {
+              isDigging = false;
+              currentTarget = null;
+              
+              if (bot.isBreakingQuartz) {
+                // Short pause between digs
+                setTimeout(findAndDigQuartz, 50);
+              }
+              return;
+            }
+          }
+        }
+      }
+      
+      // If no quartz blocks found nearby, try to find some further away
+      const distantBlocks = bot.findBlocks({
+        matching: block => block.name.includes('quartz') || block.name === 'nether_quartz_ore',
+        maxDistance: reach * 2, // Use twice the reach for distant blocks
+        count: 5
+      });
+
+      if (distantBlocks.length > 0) {
+        // Move to the nearest quartz block
+        const target = distantBlocks[0];
+        self.ui.log('blue', `\n[🚶] ${botName} moving to quartz at (${target.x}, ${target.y}, ${target.z})`);
+        
+        try {
+          // Move near but not exactly on the block to avoid standing on it
+          bot.pathfinder.setGoal(new GoalNear(target.x, target.y, target.z, 2));
+        } catch (err) {
+          self.ui.log('yellow', `\n[⚠️] Pathfinding error: ${err.message}`);
+        }
+      }
+
+      // Check again after a delay
+      setTimeout(findAndDigQuartz, 1000);
+    } else if (!isDigging) {
+      // If we have a target but aren't digging, something went wrong - reset and try again
+      currentTarget = null;
+      setTimeout(findAndDigQuartz, 250);
+    }
+  }
+
+  // Start the quartz breaking process
+  findAndDigQuartz();
+
+  // Return a function to stop the quartz breaking
+  return () => {
+    // Print a newline to avoid overwriting the counter
+    process.stdout.write('\n');
+    self.ui.log('yellow', `[🛑] ${botName} stopped breaking quartz. Total broken: ${quartzBroken}`);
+    bot.isBreakingQuartz = false;
+    currentTarget = null;
+  };
+}
   
   gotoCoordinates(bot, botName, x, y, z) {
     if (!bot) return;
