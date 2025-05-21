@@ -5,8 +5,8 @@ const CommandProcessor = require('./commandProcessor');
 
 // Server configuration
 const serverOptions = {
-  host: 'server.speedslicer.dev',
-  port: 25565,
+  host: '192.168.1.20',
+  port: 25575,
   version: '1.12.2',
 };
 
